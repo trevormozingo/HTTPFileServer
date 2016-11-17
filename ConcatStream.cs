@@ -8,191 +8,221 @@ namespace CS422
 	{
 		private Stream first;
 		private Stream second;
-		private long position;
-		private long fixedLength = -1;
 
-		public ConcatStream(Stream first, Stream second)
+		private long position = 0;						//the concatstream position (entire stream)
+		public long secondPosition = 0;					//use secondPosition for the event that stream 2 is not seekable
+		private long fixedLength = -1;					//mark if length is supported (if seeking in 2 is supported)
+		private bool expandable = false;				//mark if stream is exapandable (used constructor 1)
+
+		public ConcatStream(Stream first, Stream second)						//expandable stream
 		{
-			if (!first.CanSeek) { throw new NotSupportedException(); }
+			if (!first.CanSeek) { throw new NotSupportedException(); }			//stream 1 must have a length
+
+			expandable = true;
 
 			this.first = first;
 			this.second = second;
 
-			position = 0;
-
-			if (CanSeek) 
+			if (CanSeek) 														//length exists otherwise it is not supported
 			{
-				fixedLength = first.Length + second.Length;
+				fixedLength = first.Length + second.Length;						
 			}
 		}
 
-		public ConcatStream(Stream first, Stream second, long fixedLength)
+		public ConcatStream(Stream first, Stream second, long fixedLength)		//using this constructor, the streams cannot expand
 		{
-			if (!first.CanSeek) { throw new NotSupportedException(); }
+			if (!first.CanSeek) { throw new NotSupportedException(); }			//stream 1 must have a length
+
 			this.first = first;
 			this.second = second;
-			this.fixedLength = fixedLength;
-			position = 0;
+
+			this.fixedLength = fixedLength;										//set fixed length (will never change)
 		}
 			
-		public override bool CanRead 
-		{
-			get { return first.CanRead && second.CanRead? true : false; }
-		}
-
-		public override bool CanSeek
-		{
-			get { return first.CanSeek && second.CanSeek? true : false; }
-		}
-
-		public override bool CanWrite
-		{
-			get { return first.CanWrite && second.CanRead? true : false; }
-		}
-
-		public override bool CanTimeout
-		{
-			get { return first.CanTimeout && second.CanTimeout? true : false; }
-		}
+		public override bool CanRead { get { return first.CanRead && second.CanRead? true : false; } }
+		public override bool CanSeek { get { return first.CanSeek && second.CanSeek? true : false; } }
+		public override bool CanWrite { get { return first.CanWrite && second.CanRead? true : false; } }
+		public override bool CanTimeout { get { return first.CanTimeout && second.CanTimeout? true : false; } }
+		public override void SetLength(long value) { throw new NotSupportedException(); }
+		public override void Flush() { throw new NotSupportedException(); }
 
 		public override long Length
 		{
 			get 
 			{ 
-				if (fixedLength == -1) { throw new NotSupportedException(); }
-				return fixedLength; 
+				if (fixedLength == -1) { throw new NotSupportedException(); }			//if we used the first constructor & stream2 has no length -> not supported
+				return fixedLength; 													//otherwise return the length of the streams
 			}
 		}
 
-		public override long Position
+		public override long Position													
 		{
 			get 
-			{ 
-				if (!CanSeek) { throw new NotSupportedException(); }
-				return position; 
+			{ 																			//unseekable stream -> position will move left to right
+				return position; 														//return the position
 			}
+
 			set 
 			{
-				if (!CanSeek) { throw new NotSupportedException(); }
-				if (value < 0) { position = 0; }
-				else if (Length < value) { position = Length; }
+				if (!CanSeek) { throw new NotSupportedException(); }					//cannot seek within not seekable stream
+
+				if (value < 0) { position = 0; }										//cap to zero, should never have to worry about this case
+
 				else { position = value; }
+
+				if (position <= first.Length)		//reset first stream position
+				{
+					first.Position = position;
+
+					if (second.CanSeek)	 { second.Position = 0; }						//if the second stream is seekable
+					secondPosition = 0;
+				}
+
+				else 								//reset second stream position
+				{
+					first.Position = first.Length;
+						
+					if (second.CanSeek)	 { second.Position = position - first.Length; }	//if the second stream is seekable
+					secondPosition = position - first.Length;
+				}
 			}
 		}
-
-		public override void SetLength(long value)
+			
+		/*
+			This is only accessable to the class itself (private), this is to ensure 
+			that nothing outside the class can seek if it is not seekable (see above)  */
+		private long Position2															//just to be used from within the class								
 		{
-			if (fixedLength == -1) { throw new NotSupportedException(); }
-			if (value < 0) { throw new ArgumentOutOfRangeException(); }
-			fixedLength = value;
-		}
+			get 
+			{ 																			//unseekable stream -> position will move left to right
+				return position; 														//return the position
+			}
 
-		public override void Flush()
-		{
-			throw new NotSupportedException();
+			set 
+			{
+				if (value < 0) { position = 0; }										//cap to zero, should never have to worry about this case
+
+				else { position = value; }
+
+				if (position <= first.Length)						//reset first stream position
+				{
+					first.Position = position;
+
+					if (second.CanSeek)	 { second.Position = 0; }	//if the second stream is seekable
+					secondPosition = 0;
+				}
+
+				else 												//reset second stream position
+				{
+					first.Position = first.Length;
+
+					if (second.CanSeek)	 { second.Position = position - first.Length; }	//if the second stream is seekable
+					secondPosition = position - first.Length;
+				}
+			}
 		}
 
 		public override long Seek(long offset, SeekOrigin origin)
 		{
-			if (!CanSeek) { throw new NotSupportedException(); }
-			if (origin == SeekOrigin.Begin) { Position = offset; }
-			if (origin == SeekOrigin.End) { Position = (Length - 1) + offset; }
-			if (origin == SeekOrigin.Current) { Position = Position + offset; }
-			if (Position < first.Length)
-			{
-				first.Position = Position;
-				second.Position = 0;
-			}
-			else 
-			{
-				first.Position = first.Length;
-				second.Position = Position - first.Length;
+			if (!CanSeek) { throw new NotSupportedException(); }						//if you cant seek --> not supported
+
+			if (origin == SeekOrigin.Begin) { Position2 = offset; }
+
+			if (origin == SeekOrigin.End) 
+			{ 
+				Position2 = Length + offset; 
 			}
 
-			return Position;
+			if (origin == SeekOrigin.Current) { Position2 = Position2 + offset; }
+
+			return Position2;
 		}
 
-		public override int Read(byte[] buffer, int offset, int count)
+		//seekable unrestricted (first constructor, both seek), seekable restricted (second constructor, both seek)
+		//unseekable not supported (first constructor, not 2), unseekable restricted (second constuctor, not 2)
+
+		public override int Read(byte[] buffer, int offset, int count)		//read is forward read only
 		{
-			if (!CanRead) { throw new NotSupportedException(); }
+			if (!CanRead) { throw new NotSupportedException(); }	//if you cannot read --> not supported
 
 			int n = 0;
 			int bytesRead = 0;
 
-			if (CanSeek)
+			if (-1 != fixedLength)									//if a length exists
 			{
-				if (Length - Position < count)
+				if (Length - Position2 < count)						//if count is greater than the length 
 				{
-					count = (int)Length - (int)Position;
-				}
-				if (Position < first.Length)
-				{
-					n = first.Read(buffer, offset, count);
-					bytesRead = n;
-					Position += n;
-				}
-				if (first.Length <= Position)
-				{
-					n = second.Read(buffer, offset + bytesRead, count - bytesRead);
-
-		
-
-					bytesRead += n;
-					Position += n;
-				}
-				while (bytesRead < Length && bytesRead < count)
-				{
-					buffer[offset + bytesRead++]=0;
+					count = (int)Length - (int)Position2;			//cap count to the bytes remaining
 				}
 			}
-			else
+
+			if (Position2 < first.Length)						//if in the first stream
 			{
-				bytesRead += first.Read(buffer, offset, count);
-				bytesRead += second.Read(buffer, offset + bytesRead, count - bytesRead);
+				n = first.Read(buffer, offset, count);			//read (at most) the rest of the first stream
+				bytesRead = n;
+				Position2 += n;
 			}
 
+			if (first.Length <= Position2)						//now read bytes remaining in second stream
+			{
+				n = second.Read(buffer, offset + bytesRead, count - bytesRead);
+				bytesRead += n;
+				Position2 += n;									
+			}
+				
 			return bytesRead;
 		}
-
-
+			
 		public override void Write(byte[] buffer, int offset, int count) 
 		{
 			if (!CanWrite) { throw new NotSupportedException(); }
 
 			int bytesWritten = 0;
 
-			if (CanSeek)
+			if (!expandable)												//if the stream has a fixed length (second constructor)
 			{
-				if (Position < first.Length)
-				{
-					int remain = (int)first.Length - (int)Position;
-					if (count < remain)
-					{
-						first.Write(buffer, offset, count);
-						bytesWritten += count;
-						Position += count;
-						count = 0;
-					}
-					else
-					{
-						first.Write(buffer, offset, remain);
-						bytesWritten += remain;
-						Position += remain;
-						count -= remain;
-					}
-					second.Position = 0;
-				}
-				if (first.Length <= Position)
-				{
-					second.Write(buffer, offset + bytesWritten, count);
-					Position += count;
-				}
-				fixedLength = first.Length + second.Length;
+				if ((Length - Position2) < count) { throw new NotSupportedException(); }	//if the bytes to write is greater than the length, throw an error
 			}
-			else
+			else 															//if it is expandable									
 			{
-				second.Write(buffer, offset, count);
+				if (fixedLength != -1 && (Length - Position2) < count) 		//expandable and suported
+				{
+					fixedLength += (count - (Length - Position2));			//expand if necessary
+				}
 			}
-		}
+
+			if (Position2 < first.Length)									//if you are in the first half
+			{
+				int remain = (int)first.Length - (int)Position2;			//get space remaining in the first half
+
+				if (count < remain)											//if just writing to the first half										
+				{
+					first.Write(buffer, offset, count);
+					bytesWritten += count;
+					Position2 += count;
+					count = 0;
+				}
+				else 														//if writing to the first & second half
+				{
+					first.Write(buffer, offset, remain);
+					bytesWritten += remain;
+					Position2 += remain;
+					count -= remain;
+				}
+			}
+
+			if (first.Length <= Position2)									//if writing to second half
+			{
+				if (-1 != fixedLength && !second.CanSeek)					//if there is a fixed length and the second cannot seek
+				{
+					if (secondPosition != Position2 - first.Length) { throw new NotSupportedException(); }	//cannot think of a case when this would happen
+				}
+
+				second.Write(buffer, offset + bytesWritten, count);
+				secondPosition += count;
+				Position2 += count;
+				bytesWritten += count;
+			}
+		} 
 	}
 }
