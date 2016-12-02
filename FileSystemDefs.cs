@@ -41,6 +41,11 @@ namespace CS422
 	{
 		private string path_name;
 
+		public string PathName
+		{
+			get { return path_name; }
+		}
+
 		public StdFSDir(Dir422 parent, string path_name)
 		{
 			this.parent = parent;
@@ -195,7 +200,7 @@ namespace CS422
 			FileStream fs = null;
 
 			try { fs = File.Open(path_name, FileMode.Open, FileAccess.Read, FileShare.Read); }
-			catch(Exception e) { Console.WriteLine(e.ToString()); }
+			catch(Exception e) { }
 
 			return fs;
 		}
@@ -205,7 +210,7 @@ namespace CS422
 			FileStream fs = null;
 
 			try { fs = File.Open(path_name, FileMode.Open, FileAccess.ReadWrite); }
-			catch(Exception e) { Console.WriteLine(e.ToString()); }
+			catch(Exception e) { }
 
 			return fs;
 		}

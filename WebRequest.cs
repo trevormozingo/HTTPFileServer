@@ -31,7 +31,6 @@ namespace CS422
 				{ ".mp4" , "video/mp4" }
 
 			};
-
 		}
 
 		public string Http_Method

@@ -60,15 +60,23 @@ namespace CS422
 
 				if (request != null)
 				{
+					bool found = false;
+
 					foreach (WebService service in WebServer.Services)
 					{
 						if (service.ServiceURI == request.Request_Target || request.Request_Target.StartsWith(service.ServiceURI + "/"))
 						{
 							service.Handler(request);
 							request.Dispose();
+							found = true;
 						}
 					}
 
+					if (!found)
+					{
+						request.WriteNotFoundResponse(":( Page not found!");
+						request.Dispose();
+					}
 				}
 				tcp_client.Close();
 			}
